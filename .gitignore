@@ -9,3 +9,5 @@
 /images/
 /tests
 poetry.lock
+**/__pycache__/
+**/output/

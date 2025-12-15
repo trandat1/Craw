@@ -33,7 +33,6 @@ def load_previous_results(
     output_dir: str,
     today: datetime,
 ) -> Tuple[set[str], set[str], list[dict[str, Any]]]:
-    scraped_pids = set()
     scraped_hrefs = set()
     all_results = []
 
@@ -59,17 +58,17 @@ def load_previous_results(
 
                 # Hỗ trợ cả format cũ (list) và format mới (object với key "data")
                 if isinstance(data, list):
-                    _update_sets_from_items(data, scraped_pids, scraped_hrefs)
+                    _update_sets_from_items(data, scraped_hrefs)
                     all_results.extend(data)
                 elif isinstance(data, dict) and "data" in data:
                     items = data["data"]
                     if isinstance(items, list):
-                        _update_sets_from_items(items, scraped_pids, scraped_hrefs)
+                        _update_sets_from_items(items, scraped_hrefs)
                         all_results.extend(items)
             except:
                 continue
 
-    return scraped_pids, scraped_hrefs, all_results
+    return scraped_hrefs, all_results
 
 
 
@@ -189,7 +188,7 @@ def _extract_bedroom_bathroom_floor(specs: dict, config: dict) -> tuple[int | No
 
     def _update_counts(key: str, value: Any, allow_override: bool = False):
         nonlocal bedroom, bathroom, floor
-        key_lower = key.lower()
+        key_lower = str(key).lower()
         num = _parse_int_from_text(value)
         if num is None:
             return
@@ -214,7 +213,7 @@ def _determine_sale_type(href: str) -> str:
     """Xác định sale_type từ URL (sell hoặc rent)."""
     if not href:
         return "sell"
-    href_lower = href.lower()
+    href_lower = str(href).lower()
     if "cho-thue" in href_lower or "cho-thuê" in href_lower:
         return "rent"
     return "sell"
@@ -235,7 +234,7 @@ def transform_to_example_format(item: dict[str, Any]) -> dict[str, Any]:
         # Item đã ở format mới, không cần transform lại
         return item
     
-    from .mapping import get_mapping
+    from .mapping import get_mapping, find_ward_key_loose
     
     specs = item.get("specs", {})
     config = item.get("config", {})
@@ -267,7 +266,7 @@ def transform_to_example_format(item: dict[str, Any]) -> dict[str, Any]:
     
     # Xác định price_unit (1 = tổng, 2 = theo tháng)
     price_unit = 1
-    price_text = item.get("price", "").lower()
+    price_text = str(item.get("price", "")).lower()
     if "tháng" in price_text or "/tháng" in price_text:
         price_unit = 2
     
@@ -293,8 +292,8 @@ def transform_to_example_format(item: dict[str, Any]) -> dict[str, Any]:
     
     # Map real_estate_type_id từ URL hoặc title
     real_estate_type_id = None
-    href_lower = href.lower() if href else ""
-    title_lower = title.lower() if title else ""
+    href_lower = str(href).lower() if href else ""
+    title_lower = str(title).lower() if title else ""
     
     # Tìm trong URL trước
     for key in ["nha-mat-pho-mat-tien", "nha-ngo-hem", "nha-biet-thu", "nha-pho-lien-ke", "nha-vuon", 
@@ -340,10 +339,10 @@ def transform_to_example_format(item: dict[str, Any]) -> dict[str, Any]:
             part_clean = part.strip()
             if not province_id:
                 province_id = get_mapping("province_id", part_clean)
-            if not district_id:
-                district_id = get_mapping("district_id", part_clean)
-            if not ward_id:
-                ward_id = get_mapping("ward_id", part_clean)
+
+        if len(location_parts) >=2:
+            if not ward_id and province_id:
+                ward_id = find_ward_key_loose("ward_mapping.json",name = location_parts[-2], province_id=province_id, district_id=district_id)
     
     # Map các infomation_* từ specs và config
     infomation_legal_docs_id = None
@@ -357,7 +356,7 @@ def transform_to_example_format(item: dict[str, Any]) -> dict[str, Any]:
     # Tìm trong specs và config
     all_specs = {**specs, **config}
     for key, value in all_specs.items():
-        key_lower = key.lower()
+        key_lower = str(key).lower()
         value_str = str(value).lower()
         
         # Map giấy tờ pháp lý (ID 18=Sổ đỏ, 19=Sổ hồng, 20=Đang chờ sổ, 21=Hợp đồng mua bán)
@@ -422,21 +421,19 @@ def transform_to_example_format(item: dict[str, Any]) -> dict[str, Any]:
         "bedroom": bedroom,
         "bathroom": bathroom,
         "floor": floor,
-        "length": None,  # Có thể có trong specs (mặt tiền)
-        "width": None,  # Có thể có trong specs
-        "lane_width": None,  # Có thể có trong specs (đường vào)
+        "length": None, 
+        "width": None,  
+        "lane_width": None,  
         "title": item.get("title", ""),
         "content": item.get("description", ""),
         "contact_type": 2,
         "contact_name": item.get("agent_name", ""),
         "contact_phone_number": item.get("agent_phone", "") if len(item.get("agent_phone", "")) < 15 else "",
-        "paper_no": None,  # Có thể có trong specs/config
-        "lot_no": None,  # Có thể có trong specs/config
+        "paper_no": None, 
+        "lot_no": None,  
         "status": 1,
         "brokerage_cooperation": None,
         "images": item.get("images", []) or [],
-        # Các trường infomation_* có thể là array hoặc single value (theo example.json)
-        # Nếu không có dữ liệu thì để là []
         "infomation_legal_docs_id": infomation_legal_docs_id if infomation_legal_docs_id is not None else None,
         "infomation_hourse_status_id": infomation_hourse_status_id if infomation_hourse_status_id is not None else [],
         "infomation_usage_condition_id": infomation_usage_condition_id if infomation_usage_condition_id is not None else [],
@@ -447,9 +444,7 @@ def transform_to_example_format(item: dict[str, Any]) -> dict[str, Any]:
         "other_info": other_info if other_info else {}
     }
     
-    # Loại bỏ các trường None (trừ một số trường quan trọng)
-    # Giữ lại các trường quan trọng dù là None
-    # Các trường array luôn có giá trị (ít nhất là [])
+
     important_fields = {"real_estate_type_id", "demand_id", "province_id", "district_id", "ward_id"}
     cleaned_output = {}
     for key, value in output.items():
@@ -472,33 +467,6 @@ def transform_to_example_format(item: dict[str, Any]) -> dict[str, Any]:
     if "other_info" in cleaned_output and not cleaned_output["other_info"]:
         cleaned_output.pop("other_info")
     return cleaned_output
-
-
-def download_image(url: str, base_folder=config.OUTPUT_DIR_IMAGES) -> str:
-    # Parse URL -> lấy path không có domain
-    parsed = urlparse(url)
-    relative_path = parsed.path.lstrip("/")  # vd: 2025/11/24/xxx.jpg
-
-    # Absolute path để lưu file
-    abs_file_path = Path(base_folder) / relative_path
-
-    # Nếu file đã tồn tại -> trả về relative path luôn
-    if abs_file_path.exists():
-        return str(abs_file_path.relative_to(config.PROJECT_ROOT))
-
-    # Tạo thư mục nếu chưa có
-    abs_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Tải ảnh
-    response = requests.get(url)
-    abs_file_path.write_bytes(response.content)
-
-    # Convert absolute → relative so với PROJECT_ROOT
-    rel_path = abs_file_path.relative_to(config.PROJECT_ROOT)
-
-    # Trả về dạng string: "images/2025/11/24/xxx.jpg"
-    return str(rel_path)
-
 
 def save_results(
     results: list[dict[str, Any]],
@@ -534,15 +502,7 @@ def save_results(
     
     # Transform sang format example.json
     transformed_data = [transform_to_example_format(item) for item in final]
-    
-    # # Tải ảnh về local
-    # for item in transformed_data:
-    #     if item.get("images"):
-    #         item["images_local_paths"] = []
-    #         for img in item["images"]:
-                # item['images_local_paths'].append(download_image(img))
-                                
-                
+               
     # Wrap trong object với key "data"
     output = {"data": transformed_data}
     

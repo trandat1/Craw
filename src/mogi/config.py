@@ -4,8 +4,8 @@ import os
 
 # === Config mặc định ===
 DEBUGGER_ADDRESS = "127.0.0.1:9222"
-BASE_URL = "https://nhadat.cafeland.vn/nha-dat-ban/ban-nha-rieng-tai-bac-giang-bac-ninh/"   # hoặc list URL
-MAX_PAGES = 2
+BASE_URL = ["https://mogi.vn/bac-giang/mua-nha-mat-tien-pho","https://mogi.vn/bac-giang/mua-dat-nen-du-an"]   # hoặc list URL
+MAX_PAGES = 5
 MAX_ITEMS_PER_PAGE = 26
 PAGE_COOLDOWN_SECONDS = 1 * 60
 PAGE_LOAD_TIMEOUT = 60
@@ -15,7 +15,7 @@ DETAIL_SCROLL_STEPS = 6
 
 SCREENSHOT_DIR = "screenshots_blocked"
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[0]
 OUTPUT_DIR = PROJECT_ROOT / "output"
 OUTPUT_DIR_FILTER = OUTPUT_DIR / "output_filtered"
 OUTPUT_DIR_IMAGES = PROJECT_ROOT / "images"

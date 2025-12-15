@@ -25,39 +25,29 @@ def _scroll_detail(driver, steps: int, human_sleep: Callable[[float, float], Non
 def _extract_specs(driver) -> dict:
     specs_map = {}
     try:
-        # Tất cả các mục thông số
-        spec_items = driver.find_elements(By.CSS_SELECTOR, 'div[data-testid="param-item"]')
+        # Lấy tất cả các mục thông số
+        spec_items = driver.find_elements(By.CSS_SELECTOR, '.info-attrs.clearfix .info-attr.clearfix')
         for spec in spec_items:
             try:
-                # Key
-                key_el = spec.find_element(By.CSS_SELECTOR, "div.a4ep88f span")
-                key = key_el.text.strip()
-                
-                # Value
-                val_el = spec.find_element(By.TAG_NAME, "strong")
-                val = val_el.text.strip()
-                
-                specs_map[key] = val
+                spans = spec.find_elements(By.TAG_NAME, "span")
+                if len(spans) >= 2:
+                    key = spans[0].text.strip()
+                    val = spans[1].text.strip()
+                    specs_map[key] = val
             except Exception:
                 continue
     except Exception:
         specs_map = {}
     return specs_map
 
-
 def _extract_images(driver) -> list[str]:
     images = []
     try:
-        # Lấy tất cả ảnh trong owl-carousel
-        imgs = driver.find_elements(
-            By.CSS_SELECTOR,
-            ".owl-carousel .owl-item img"
-        )
+        imgs = driver.find_elements(By.CSS_SELECTOR, ".owl-carousel .owl-item img")
 
         for img in imgs:
-            src = img.get_attribute("src") or ""
+            src = img.get_attribute("data-src") or img.get_attribute("src") or ""
 
-            # Bỏ ảnh rỗng hoặc base64 blur
             if not src or src.startswith("data:image"):
                 continue
 
@@ -71,98 +61,100 @@ def _extract_images(driver) -> list[str]:
 
     return images
 
-
 def _extract_description(driver, wait) -> str:
     try:
         desc_el = wait.until(
             EC.presence_of_element_located((
                 By.CSS_SELECTOR,
-                ".reals-description .blk-content.content"
+                ".info-content-body"
             ))
         )
-        return desc_el.get_attribute("innerText").strip()  # GIỮ XUỐNG DÒNG
+        # Lấy innerHTML
+        html = desc_el.get_attribute("innerHTML") or ""
+
+        # Thay <br> và <br/> bằng newline
+        text = html.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+
+        # Loại bỏ thẻ HTML còn lại nếu có
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(text, "html.parser")
+        clean_text = soup.get_text().strip()
+
+        return clean_text
+
     except Exception:
         return ""
-
-def _extract_config(driver):
-    config = {}
-    try:
-        config_items = driver.find_elements(By.CSS_SELECTOR, ".re__pr-short-info-item.js__pr-config-item")
-        for ci in config_items:
-            try:
-                t = ci.find_element(By.CSS_SELECTOR, ".title").text.strip()
-                v = ci.find_element(By.CSS_SELECTOR, ".value").text.strip()
-                config[t] = v
-            except Exception:
-                continue
-    except Exception:
-        config = {}
-    return config
-
 
 def _extract_phone(driver, wait, human_sleep):
     phone_text = ""
     contact_name = ""
 
-    # Inject override ngay trước khi click
-    driver.execute_script("""
-        window.showFullNumberCall = function(it, e) {
-            try {
-                var crsfToken = document.querySelector('meta[name="csrf-token"]').content;
-                e = e.replaceAll('*','');
-
-                var endNum = it.getAttribute('data-nb');
-                var parseStr = endNum.split('-', 2);
-
-                endNum = parseStr[0].replace(crsfToken, '');
-                endNum = endNum.substr(0, parseStr[1]);
-
-                var full = (e + endNum).replaceAll(' ', '');
-                
-                it.textContent = full;
-                it.removeAttribute('href');   // KHÔNG popup
-                
-            } catch(err) {}
-        };
-    """)
-
     try:
-        # Click nút hiện số
-        btn = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "a.detailTelProfile"))
+        span = wait.until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "a[gtm-act='mobile-call'] span.ng-binding")
+            )
         )
+        phone_text = span.text.strip()
 
-        driver.execute_script(
-            "arguments[0].scrollIntoView({behavior:'smooth',block:'center'});",
-            btn
-        )
-        human_sleep(0.4, 0.8)
-
-        try:
-            btn.click()
-        except:
-            driver.execute_script(
-                "arguments[0].dispatchEvent(new MouseEvent('click', {bubbles:true}));",
-                btn
+        def is_masked(phone):
+            return (
+                not phone
+                or "xxx" in phone.lower()
+                or "*" in phone
+                or len(phone.replace(" ", "")) < 9
             )
 
-        # Không cần close alert nữa → vì không còn tel:
-        human_sleep(0.3, 0.5)
+        # 👉 Nếu bị che → click
+        if is_masked(phone_text):
+            btn = span.find_element(By.XPATH, "./ancestor::a")
 
-        # Lấy số từ innerText
-        phone_text = btn.text.strip()
+            driver.execute_script(
+                "arguments[0].scrollIntoView({behavior:'smooth', block:'center'});",
+                btn
+            )
+            human_sleep(0.3, 0.6)
 
-    except:
-        # Fallback
-        m = re.search(r"(0\d{8,10}|\+84\d{8,10})", driver.page_source.replace(" ", ""))
+            try:
+                btn.click()
+            except:
+                driver.execute_script(
+                    "arguments[0].dispatchEvent(new MouseEvent('click', {bubbles:true}));",
+                    btn
+                )
+
+            human_sleep(0.4, 0.7)
+
+            # Lấy lại text sau khi click
+            phone_text = span.text.strip()
+
+    except Exception:
+        # Fallback cuối cùng
+        m = re.search(
+            r"(0\d{8,10}|\+84\d{8,10})",
+            driver.page_source.replace(" ", "")
+        )
         phone_text = m.group(0) if m else ""
 
-    # Lấy tên người đăng
+    # ===== Lấy tên người đăng =====
     try:
-        name_el = driver.find_element(By.CSS_SELECTOR, ".profile-info .profile-name strong")
+        name_el = driver.find_element(
+            By.CSS_SELECTOR,
+            ".agent-widget .agent-name a"
+        )
         contact_name = name_el.text.strip()
+       
+
     except:
-        pass
+        try:
+            name_el = driver.find_element(
+                By.CSS_SELECTOR,
+                ".agent-widget .agent-name"
+            )
+            contact_name = name_el.text
+            contact_name = re.sub(r"\s+", " ", contact_name).strip()
+        except:
+            pass
 
     return phone_text, contact_name
 
@@ -176,7 +168,7 @@ def _extract_map(driver, wait):
         # Tìm đúng iframe bản đồ
         iframe = wait.until(
             EC.presence_of_element_located(
-                (By.CSS_SELECTOR, ".reals-map .frame-map iframe")
+                (By.CSS_SELECTOR, ".map-content iframe")
             )
         )
 
@@ -247,45 +239,6 @@ def _extract_map(driver, wait):
     return map_coords, map_link, map_dms
 
 
-
-
-def _extract_pricing(driver, wait):
-    pricing = {}
-    return pricing
-
-    # Chờ toàn bộ khối pricing load (Vue render xong)
-    wait.until(EC.presence_of_element_located(
-        (By.CSS_SELECTOR, ".re__chart-subsapo")
-    ))
-
-    cols = driver.find_elements(By.CSS_SELECTOR, ".re__chart-subsapo .re__chart-col")
-
-    for col in cols:
-
-        classes = col.get_attribute("class") or ""
-        if "no-data" in classes:
-            continue
-
-        try:
-            # Tìm trong scope của col, không phải toàn bộ document
-            big_elem = col.find_element(By.CSS_SELECTOR, ".text-big strong")
-            big = big_elem.text.strip()
-
-            small_elem = col.find_element(By.CSS_SELECTOR, ".text-small")
-            small = small_elem.text.strip()
-
-            if small and big:
-                pricing[small] = big
-
-        except Exception as e:
-            print("Vue/AJAX element not ready:", e)
-            print(col.get_attribute("outerHTML"))
-            continue
-
-    return pricing
-
-
-
 def open_detail_and_extract(
     driver,
     wait,
@@ -322,10 +275,13 @@ def open_detail_and_extract(
         return item
 
     try:
-        title_el = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h1.head-title")))
+        title_el = wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, ".title h1"))
+        )
         item["title"] = title_el.text.strip()
     except Exception:
         item["title"] = ""
+
 
     specs_map = _extract_specs(driver)
 
@@ -333,29 +289,13 @@ def open_detail_and_extract(
     try:
         addr_el = wait.until(
             EC.presence_of_element_located((
-                By.XPATH,
-                "//div[@class='reales-location']//div[contains(@style,'width:87%')]"
+                By.CSS_SELECTOR,
+                "div.address"
             ))
         )
-        location = addr_el.text.replace("\n", " ")
-        location = location.split("Lưu tin")[0].strip()
-        item["location"] = location
+        item["location"] = addr_el.text.strip()
     except Exception:
         item["location"] = ""
-
-    # Lấy ngày cập nhật
-    try:
-        date_el = wait.until(
-            EC.presence_of_element_located((
-                By.XPATH,
-                "//div[@class='reales-location']//div[@class='col-right']//i"
-            ))
-        )
-        # Ví dụ text: "Cập nhật: 10-12-2025"
-        text = date_el.text.strip()
-        item["posted_date"] = text.replace("Cập nhật:", "").strip()
-    except Exception:
-        item["posted_date"] = ""
 
 
     item["description"] = _extract_description(driver, wait)
@@ -363,6 +303,8 @@ def open_detail_and_extract(
 
 
     item["specs"] = specs_map
+    item["posted_date"] = specs_map['Ngày đăng']
+    
     phone_text, contact_name = _extract_phone(driver, wait, human_sleep)
     item["agent_phone"] = phone_text
     item["agent_name"] = contact_name

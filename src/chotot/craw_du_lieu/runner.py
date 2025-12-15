@@ -504,7 +504,7 @@ def run_scraper(
     today, _, results_file = config.prepare_output_paths(datetime.now(), filters)
     
     scraped_pids, scraped_hrefs, _ = load_previous_results(config.OUTPUT_DIR, today)
-    all_results = load_today_results(results_file, scraped_pids, scraped_hrefs)
+    all_results = load_today_results(results_file, scraped_hrefs)
     # if filters:
     #     scraped_pids, scraped_hrefs, _ = load_previous_results(config.OUTPUT_DIR_FILTER, today)
     #     all_results = load_today_results(results_file, scraped_pids, scraped_hrefs)

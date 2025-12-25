@@ -4,9 +4,9 @@ import os
 
 # === Config mặc định ===
 DEBUGGER_ADDRESS = "127.0.0.1:9222"
-BASE_URL = ["https://vndiaoc.com/dat-nen.html"]   # hoặc list URL
+BASE_URL = "https://thongkenhadat.com/ban-dat-nen-du-an-bac-giang-9.html"   # hoặc list URL
 MAX_PAGES = 5
-MAX_ITEMS_PER_PAGE = 26
+MAX_ITEMS_PER_PAGE = 100
 PAGE_COOLDOWN_SECONDS = 1 * 60
 PAGE_LOAD_TIMEOUT = 60
 WAIT_TIMEOUT = 20

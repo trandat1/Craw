@@ -4,8 +4,8 @@ import os
 
 # === Config mặc định ===
 DEBUGGER_ADDRESS = "127.0.0.1:9222"
-BASE_URL = ["https://vndiaoc.com/dat-nen.html"]   # hoặc list URL
-MAX_PAGES = 5
+BASE_URL = "https://bds.com.vn/mua-ban-dat"   # hoặc list URL
+MAX_PAGES = 2
 MAX_ITEMS_PER_PAGE = 26
 PAGE_COOLDOWN_SECONDS = 1 * 60
 PAGE_LOAD_TIMEOUT = 60
@@ -15,7 +15,7 @@ DETAIL_SCROLL_STEPS = 6
 
 SCREENSHOT_DIR = "screenshots_blocked"
 
-PROJECT_ROOT = Path(__file__).resolve().parents[0]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_DIR = PROJECT_ROOT / "output"
 OUTPUT_DIR_FILTER = OUTPUT_DIR / "output_filtered"
 OUTPUT_DIR_IMAGES = PROJECT_ROOT / "images"

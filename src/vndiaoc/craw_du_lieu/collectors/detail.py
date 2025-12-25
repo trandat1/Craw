@@ -23,30 +23,54 @@ def _scroll_detail(driver, steps: int, human_sleep: Callable[[float, float], Non
 
 
 def _extract_specs(driver) -> dict:
-    specs_map = {}
+    specs = {
+        "loai_bds": "",
+        "ngay_het_han": "",
+        "features": []
+    }
+
+    # ===== listOption =====
     try:
-        # Lấy tất cả các mục thông số
-        spec_items = driver.find_elements(By.CSS_SELECTOR, '.info-attrs.clearfix .info-attr.clearfix')
-        for spec in spec_items:
-            try:
-                spans = spec.find_elements(By.TAG_NAME, "span")
-                if len(spans) >= 2:
-                    key = spans[0].text.strip()
-                    val = spans[1].text.strip()
-                    specs_map[key] = val
-            except Exception:
-                continue
-    except Exception:
-        specs_map = {}
-    return specs_map
+        items = driver.find_elements(By.CSS_SELECTOR, ".listOption ul li")
+
+        for li in items:
+            key = li.find_element(By.TAG_NAME, "span").text.strip()
+            val = li.text.replace(key, "").replace(":", "").strip()
+
+            if key == "Loại bất động sản":
+                specs["loai_bds"] = val
+            elif key == "Ngày hết hạn":
+                specs["ngay_het_han"] = val
+
+    except:
+        pass
+
+    # ===== listDesign (tiện ích) =====
+    try:
+        specs["features"] = [
+            el.text.strip()
+            for el in driver.find_elements(
+                By.CSS_SELECTOR,
+                ".listDesign ul li .item"
+            )
+            if el.text.strip()
+        ]
+    except:
+        pass
+
+    return specs
+
 
 def _extract_images(driver) -> list[str]:
     images = []
     try:
-        imgs = driver.find_elements(By.CSS_SELECTOR, ".owl-carousel .owl-item img")
+        imgs = driver.find_elements(
+            By.CSS_SELECTOR,
+            "#slideImgNav .slick-slide img"
+        )
 
         for img in imgs:
-            src = img.get_attribute("data-src") or img.get_attribute("src") or ""
+            src = img.get_attribute("data-src") or img.get_attribute("src")
 
             if not src or src.startswith("data:image"):
                 continue
@@ -56,31 +80,25 @@ def _extract_images(driver) -> list[str]:
             if clean_src and clean_src not in images:
                 images.append(clean_src)
 
-    except Exception:
-        pass
+    except Exception as e:
+        print(e)
 
     return images
+
 
 def _extract_description(driver, wait) -> str:
     try:
         desc_el = wait.until(
             EC.presence_of_element_located((
                 By.CSS_SELECTOR,
-                ".info-content-body"
+                "#vnt-content .wrapper .gridContent .col1 .boxDesign .content .the-info .the-cap"
             ))
         )
-        # Lấy innerHTML
-        html = desc_el.get_attribute("innerHTML") or ""
 
-        # Thay <br> và <br/> bằng newline
-        text = html.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+        # Lấy nguyên HTML bên trong
+        html = desc_el.get_attribute("outerHTML") or ""
 
-        # Loại bỏ thẻ HTML còn lại nếu có
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(text, "html.parser")
-        clean_text = soup.get_text().strip()
-
-        return clean_text
+        return html.strip()
 
     except Exception:
         return ""
@@ -90,71 +108,36 @@ def _extract_phone(driver, wait, human_sleep):
     contact_name = ""
 
     try:
-        span = wait.until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "a[gtm-act='mobile-call'] span.ng-binding")
-            )
-        )
-        phone_text = span.text.strip()
-
-        def is_masked(phone):
-            return (
-                not phone
-                or "xxx" in phone.lower()
-                or "*" in phone
-                or len(phone.replace(" ", "")) < 9
-            )
-
-        # 👉 Nếu bị che → click
-        if is_masked(phone_text):
-            btn = span.find_element(By.XPATH, "./ancestor::a")
-
-            driver.execute_script(
-                "arguments[0].scrollIntoView({behavior:'smooth', block:'center'});",
-                btn
-            )
-            human_sleep(0.3, 0.6)
-
-            try:
-                btn.click()
-            except:
-                driver.execute_script(
-                    "arguments[0].dispatchEvent(new MouseEvent('click', {bubbles:true}));",
-                    btn
-                )
-
-            human_sleep(0.4, 0.7)
-
-            # Lấy lại text sau khi click
-            phone_text = span.text.strip()
-
-    except Exception:
-        # Fallback cuối cùng
-        m = re.search(
-            r"(0\d{8,10}|\+84\d{8,10})",
-            driver.page_source.replace(" ", "")
-        )
-        phone_text = m.group(0) if m else ""
-
-    # ===== Lấy tên người đăng =====
-    try:
-        name_el = driver.find_element(
-            By.CSS_SELECTOR,
-            ".agent-widget .agent-name a"
+        # ===== LẤY TÊN LIÊN LẠC =====
+        name_el = wait.until(
+            EC.presence_of_element_located((
+                By.XPATH,
+                "//li[.//div[@class='at' and normalize-space()='Tên liên lạc']]//div[@class='as']"
+            ))
         )
         contact_name = name_el.text.strip()
-       
 
-    except:
-        try:
-            name_el = driver.find_element(
-                By.CSS_SELECTOR,
-                ".agent-widget .agent-name"
-            )
-            contact_name = name_el.text
-            contact_name = re.sub(r"\s+", " ", contact_name).strip()
-        except:
-            pass
+    except Exception:
+        contact_name = ""
+
+    try:
+        # ===== LẤY SỐ ĐIỆN THOẠI =====
+        phone_el = wait.until(
+            EC.presence_of_element_located((
+                By.XPATH,
+                "//li[.//div[@class='at' and normalize-space()='Điện thoại']]//a"
+            ))
+        )
+
+        phone_text = phone_el.text.strip()
+
+        # Fallback lấy từ href tel:
+        if not phone_text:
+            href = phone_el.get_attribute("href") or ""
+            phone_text = href.replace("tel:", "").strip()
+
+    except Exception:
+        phone_text = ""
 
     return phone_text, contact_name
 
@@ -165,78 +148,65 @@ def _extract_map(driver, wait):
     map_dms = ""
 
     try:
-        # Tìm đúng iframe bản đồ
-        iframe = wait.until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, ".map-content iframe")
-            )
-        )
+        # Đảm bảo page load xong
+        wait.until(lambda d: d.execute_script("return typeof data_map !== 'undefined'"))
 
-        # Scroll đến iframe (bắt buộc để load lazy iframe)
-        driver.execute_script("arguments[0].scrollIntoView(true);", iframe)
-        time.sleep(1)
+        data = driver.execute_script("return data_map")
 
-        # Lấy URL bản đồ
-        map_link = iframe.get_attribute("src") or iframe.get_attribute("data-src") or ""
-        if not map_link:
+        if not data or not isinstance(data, list):
             return "", "", ""
 
-        lat_str = lng_str = None
+        item = data[0]
 
-        # ================================
-        # Pattern 1: Google Maps embed dạng !3dLAT!4dLNG
-        # ================================
-        m1 = re.search(r'!3d([0-9.\-]+)!4d([0-9.\-]+)', map_link)
-        if m1:
-            lat_str, lng_str = m1.group(1), m1.group(2)
+        lat = float(item.get("lat", ""))
+        lng = float(item.get("lon", ""))
 
-        # ================================
-        # Pattern 2: dạng ?q=LAT,LNG hoặc &q=LAT,LNG
-        # ================================
-        if not lat_str:
-            m2 = re.search(r'[?&]q=([0-9.\-]+),([0-9.\-]+)', map_link)
-            if m2:
-                lat_str, lng_str = m2.group(1), m2.group(2)
-
-        # ================================
-        # Pattern 3: dạng trung gian weird (Google đôi khi encode)
-        # ================================
-        if not lat_str:
-            m3 = re.search(r'([0-9.\-]+),([0-9.\-]+)', map_link)
-            if m3:
-                # Chỉ chấp nhận khi khớp trong đoạn q= hoặc layer=
-                if "maps" in map_link:
-                    lat_str, lng_str = m3.group(1), m3.group(2)
-
-        if not lat_str:
-            # Không extract được tọa độ
-            return "", map_link, ""
-
-        # Chuyển đổi sang float
-        try:
-            lat = float(lat_str)
-            lng = float(lng_str)
-        except:
-            return "", map_link, ""
-
-        # Kiểm tra hợp lệ
         if not (-90 <= lat <= 90 and -180 <= lng <= 180):
-            return "", map_link, ""
+            return "", "", ""
 
-        # Tọa độ dạng decimal
         map_coords = f"{lat},{lng}"
 
-        # Chuyển sang DMS
+        # Optional: link Google Maps
+        map_link = f"https://www.google.com/maps?q={lat},{lng}"
+
+        # Optional: DMS
         try:
             map_dms = utils.format_dms(lat, lng)
         except:
             map_dms = ""
 
     except Exception:
-        # Không tìm thấy iframe
         return "", "", ""
 
     return map_coords, map_link, map_dms
+
+def _extract_area(driver, wait):
+    area = ""
+    total_area = ""
+
+    try:
+        # Diện tích
+        area_el = driver.find_element(
+            By.XPATH,
+            "//div[@class='the-attr']//li[starts-with(normalize-space(), 'Diện tích')]//span"
+        )
+        area = area_el.text.strip()
+
+    except:
+        pass
+
+    try:
+        # Tổng diện tích
+        total_el = driver.find_element(
+            By.XPATH,
+            "//div[@class='the-attr']//li[contains(normalize-space(), 'Tổng diện tích')]//span"
+        )
+        total_area = total_el.text.strip()
+
+    except:
+        pass
+
+    return area, total_area
 
 
 def open_detail_and_extract(
@@ -289,25 +259,27 @@ def open_detail_and_extract(
     try:
         addr_el = wait.until(
             EC.presence_of_element_located((
-                By.CSS_SELECTOR,
-                "div.address"
+                By.XPATH,
+                "//div[@class='boxOption']//li[.//div[@class='at' and normalize-space()='Địa chỉ']]//div[@class='as']"
             ))
         )
         item["location"] = addr_el.text.strip()
+
     except Exception:
         item["location"] = ""
-
 
     item["description"] = _extract_description(driver, wait)
     item["images"] = _extract_images(driver)
 
-
     item["specs"] = specs_map
-    item["posted_date"] = specs_map['Ngày đăng']
+    item["posted_date"] = specs_map['ngay_het_han']
     
     phone_text, contact_name = _extract_phone(driver, wait, human_sleep)
     item["agent_phone"] = phone_text
     item["agent_name"] = contact_name
+    
+    area, total_area = _extract_area(driver, wait)
+    item["area"] = total_area
 
     map_coords, map_link, map_dms = _extract_map(driver, wait)
     item["map_coords"] = map_coords

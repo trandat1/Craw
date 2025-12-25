@@ -435,7 +435,7 @@ def scrape_url(
                     status_callback["total_items"] = len(all_results) + i
                     status_callback["progress"] = f"Trang {page_idx}/{max_pages} - Item {i}/{len(collected)}"
                 
-                print(f"[Page {page_idx}] Item {i}/{len(collected)} - PID {item.get('pid')}")
+                print(f"[Page {page_idx}] Item {i}/{len(collected)}")
                 human_sleep(2, 5)
                 try:
                     full = open_detail_and_extract(

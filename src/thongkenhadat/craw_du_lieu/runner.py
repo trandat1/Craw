@@ -16,65 +16,35 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from . import utils
 
-def find_and_click_next_page(driver):
-    """Tìm và click nút trang kế tiếp theo HTML phân trang của CafeLand."""
+def find_and_click_next_page(driver, wait):
     prev_url = driver.current_url
 
-    # ───────────────────────────────
-    # 1) Lấy trang hiện tại
-    # ───────────────────────────────
     try:
-        current_page_el = driver.find_element(By.CSS_SELECTOR, ".pagination li.active a")
-        current_page = int(current_page_el.text.strip())
-    except Exception:
-        current_page = 1
+        # Tìm link next (ký hiệu »)
+        next_btn = wait.until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//div[@class='navigation']//a[text()='»']")
+            )
+        )
 
-    # ───────────────────────────────
-    # 2) Tìm link page kế tiếp (page+1)
-    # ───────────────────────────────
-    next_elem = None
-    try:
-        next_page_selector = f'a[href*="page-{current_page + 1}"]'
-        next_elem = driver.find_element(By.CSS_SELECTOR, next_page_selector)
-    except:
-        pass
-
-    # ───────────────────────────────
-    # 3) Fallback: tìm nút mũi tên "»"
-    # ───────────────────────────────
-    if not next_elem:
-        try:
-            next_elem = driver.find_element(By.XPATH, "//ul[@class='pagination']//a[text()='»']")
-        except:
-            print(f"[Pagination] No next page after page {current_page}")
+        next_href = next_btn.get_attribute("href")
+        if not next_href:
             return False
 
-    # ───────────────────────────────
-    # 4) Click hoặc load href
-    # ───────────────────────────────
-    try:
-        if next_elem.tag_name == "a":
-            next_href = next_elem.get_attribute("href")
-            if next_href:
-                full_url = urljoin(prev_url, next_href)
-                driver.get(full_url)
-            else:
-                next_elem.click()
-        else:
-            next_elem.click()
-    except Exception as e:
-        print("[Pagination] Error moving to next page:", e)
+        driver.get(next_href)
+
+    except Exception:
+        print("[Pagination] No next page")
         return False
 
-    # ───────────────────────────────
-    # 5) Chờ page thay đổi
-    # ───────────────────────────────
-    for _ in range(30):
+    # Chờ URL thay đổi
+    for _ in range(20):
         time.sleep(0.5)
         if driver.current_url != prev_url:
             return True
 
     return False
+
 
 def find_exact_url_from_sidebar(driver, wait, location_filter, base_url=None):
     """
@@ -369,7 +339,7 @@ def scrape_url(
                     print("Reached max pages, stopping.")
                     break
                 print("Attempting to move to next page despite duplicates...")
-                if not find_and_click_next_page(driver):
+                if not find_and_click_next_page(driver,wait):
                     print("No further pages available, stopping.")
                     break
                 continue
@@ -418,7 +388,7 @@ def scrape_url(
             
             if page_idx >= max_pages:
                 break
-            if not find_and_click_next_page(driver):
+            if not find_and_click_next_page(driver, wait):
                 break
 
     except Exception as e:

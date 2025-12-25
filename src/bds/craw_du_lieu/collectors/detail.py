@@ -1,0 +1,383 @@
+from __future__ import annotations
+
+import os
+import re
+from typing import Callable
+
+from selenium.common.exceptions import WebDriverException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from .. import utils
+import time
+
+def clean_image_url(url: str | None):
+    if not url or "no-photo" in url:
+        return None
+    return url
+
+
+def _scroll_detail(driver, steps: int, human_sleep: Callable[[float, float], None]):
+    for _ in range(steps):
+        driver.execute_script("window.scrollBy(0, 1000);")
+        human_sleep(0.5, 2.0)
+
+
+def _extract_specs(driver) -> dict:
+    specs_map = {}
+    try:
+        # Tất cả các mục thông số
+        spec_items = driver.find_elements(By.CSS_SELECTOR, 'div[data-testid="param-item"]')
+        for spec in spec_items:
+            try:
+                # Key
+                key_el = spec.find_element(By.CSS_SELECTOR, "div.a4ep88f span")
+                key = key_el.text.strip()
+                
+                # Value
+                val_el = spec.find_element(By.TAG_NAME, "strong")
+                val = val_el.text.strip()
+                
+                specs_map[key] = val
+            except Exception:
+                continue
+    except Exception:
+        specs_map = {}
+    return specs_map
+
+
+def _extract_images(driver) -> list[str]:
+    images = []
+    try:
+        # Lấy tất cả ảnh trong owl-carousel
+        imgs = driver.find_elements(
+            By.CSS_SELECTOR,
+            ".owl-carousel .owl-item img"
+        )
+
+        for img in imgs:
+            src = img.get_attribute("src") or ""
+
+            # Bỏ ảnh rỗng hoặc base64 blur
+            if not src or src.startswith("data:image"):
+                continue
+
+            clean_src = clean_image_url(src)
+
+            if clean_src and clean_src not in images:
+                images.append(clean_src)
+
+    except Exception:
+        pass
+
+    return images
+
+
+def _extract_description(driver, wait) -> str:
+    try:
+        desc_el = wait.until(
+            EC.presence_of_element_located((
+                By.CSS_SELECTOR,
+                ".reals-description .blk-content.content"
+            ))
+        )
+        return desc_el.get_attribute("innerText").strip()  # GIỮ XUỐNG DÒNG
+    except Exception:
+        return ""
+
+def _extract_config(driver):
+    config = {}
+    try:
+        config_items = driver.find_elements(By.CSS_SELECTOR, ".re__pr-short-info-item.js__pr-config-item")
+        for ci in config_items:
+            try:
+                t = ci.find_element(By.CSS_SELECTOR, ".title").text.strip()
+                v = ci.find_element(By.CSS_SELECTOR, ".value").text.strip()
+                config[t] = v
+            except Exception:
+                continue
+    except Exception:
+        config = {}
+    return config
+
+
+def _extract_phone(driver, wait, human_sleep):
+    phone_text = ""
+    contact_name = ""
+
+    # Inject override ngay trước khi click
+    driver.execute_script("""
+        window.showFullNumberCall = function(it, e) {
+            try {
+                var crsfToken = document.querySelector('meta[name="csrf-token"]').content;
+                e = e.replaceAll('*','');
+
+                var endNum = it.getAttribute('data-nb');
+                var parseStr = endNum.split('-', 2);
+
+                endNum = parseStr[0].replace(crsfToken, '');
+                endNum = endNum.substr(0, parseStr[1]);
+
+                var full = (e + endNum).replaceAll(' ', '');
+                
+                it.textContent = full;
+                it.removeAttribute('href');   // KHÔNG popup
+                
+            } catch(err) {}
+        };
+    """)
+
+    try:
+        # Click nút hiện số
+        btn = wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "a.detailTelProfile"))
+        )
+
+        driver.execute_script(
+            "arguments[0].scrollIntoView({behavior:'smooth',block:'center'});",
+            btn
+        )
+        human_sleep(0.4, 0.8)
+
+        try:
+            btn.click()
+        except:
+            driver.execute_script(
+                "arguments[0].dispatchEvent(new MouseEvent('click', {bubbles:true}));",
+                btn
+            )
+
+        # Không cần close alert nữa → vì không còn tel:
+        human_sleep(0.3, 0.5)
+
+        # Lấy số từ innerText
+        phone_text = btn.text.strip()
+
+    except:
+        # Fallback
+        m = re.search(r"(0\d{8,10}|\+84\d{8,10})", driver.page_source.replace(" ", ""))
+        phone_text = m.group(0) if m else ""
+
+    # Lấy tên người đăng
+    try:
+        name_el = driver.find_element(By.CSS_SELECTOR, ".profile-info .profile-name strong")
+        contact_name = name_el.text.strip()
+    except:
+        pass
+
+    return phone_text, contact_name
+
+
+def _extract_map(driver, wait):
+    map_coords = ""
+    map_link = ""
+    map_dms = ""
+
+    try:
+        # Tìm đúng iframe bản đồ
+        iframe = wait.until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, ".reals-map .frame-map iframe")
+            )
+        )
+
+        # Scroll đến iframe (bắt buộc để load lazy iframe)
+        driver.execute_script("arguments[0].scrollIntoView(true);", iframe)
+        time.sleep(1)
+
+        # Lấy URL bản đồ
+        map_link = iframe.get_attribute("src") or iframe.get_attribute("data-src") or ""
+        if not map_link:
+            return "", "", ""
+
+        lat_str = lng_str = None
+
+        # ================================
+        # Pattern 1: Google Maps embed dạng !3dLAT!4dLNG
+        # ================================
+        m1 = re.search(r'!3d([0-9.\-]+)!4d([0-9.\-]+)', map_link)
+        if m1:
+            lat_str, lng_str = m1.group(1), m1.group(2)
+
+        # ================================
+        # Pattern 2: dạng ?q=LAT,LNG hoặc &q=LAT,LNG
+        # ================================
+        if not lat_str:
+            m2 = re.search(r'[?&]q=([0-9.\-]+),([0-9.\-]+)', map_link)
+            if m2:
+                lat_str, lng_str = m2.group(1), m2.group(2)
+
+        # ================================
+        # Pattern 3: dạng trung gian weird (Google đôi khi encode)
+        # ================================
+        if not lat_str:
+            m3 = re.search(r'([0-9.\-]+),([0-9.\-]+)', map_link)
+            if m3:
+                # Chỉ chấp nhận khi khớp trong đoạn q= hoặc layer=
+                if "maps" in map_link:
+                    lat_str, lng_str = m3.group(1), m3.group(2)
+
+        if not lat_str:
+            # Không extract được tọa độ
+            return "", map_link, ""
+
+        # Chuyển đổi sang float
+        try:
+            lat = float(lat_str)
+            lng = float(lng_str)
+        except:
+            return "", map_link, ""
+
+        # Kiểm tra hợp lệ
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            return "", map_link, ""
+
+        # Tọa độ dạng decimal
+        map_coords = f"{lat},{lng}"
+
+        # Chuyển sang DMS
+        try:
+            map_dms = utils.format_dms(lat, lng)
+        except:
+            map_dms = ""
+
+    except Exception:
+        # Không tìm thấy iframe
+        return "", "", ""
+
+    return map_coords, map_link, map_dms
+
+
+
+
+def _extract_pricing(driver, wait):
+    pricing = {}
+    return pricing
+
+    # Chờ toàn bộ khối pricing load (Vue render xong)
+    wait.until(EC.presence_of_element_located(
+        (By.CSS_SELECTOR, ".re__chart-subsapo")
+    ))
+
+    cols = driver.find_elements(By.CSS_SELECTOR, ".re__chart-subsapo .re__chart-col")
+
+    for col in cols:
+
+        classes = col.get_attribute("class") or ""
+        if "no-data" in classes:
+            continue
+
+        try:
+            # Tìm trong scope của col, không phải toàn bộ document
+            big_elem = col.find_element(By.CSS_SELECTOR, ".text-big strong")
+            big = big_elem.text.strip()
+
+            small_elem = col.find_element(By.CSS_SELECTOR, ".text-small")
+            small = small_elem.text.strip()
+
+            if small and big:
+                pricing[small] = big
+
+        except Exception as e:
+            print("Vue/AJAX element not ready:", e)
+            print(col.get_attribute("outerHTML"))
+            continue
+
+    return pricing
+
+
+
+def open_detail_and_extract(
+    driver,
+    wait,
+    item: dict,
+    *,
+    current_list_url: str,
+    screenshot_dir: str,
+    detail_scroll_steps: int,
+    human_sleep: Callable[[float, float], None],
+):
+    href = item["href"]
+    print(f"  -> Opening detail: {href}")
+
+    try:
+        driver.get(href)
+    except WebDriverException:
+        driver.get(href)
+    human_sleep(3, 5)
+
+    _scroll_detail(driver, detail_scroll_steps, human_sleep)
+
+    cur_url = driver.current_url.lower()
+    page_source = driver.page_source.lower()
+
+    if "captcha" in cur_url or "captcha" in page_source[:3000]:
+        fname = os.path.join(screenshot_dir, f"captcha_detail_{href}.png")
+        try:
+            driver.save_screenshot(fname)
+        except Exception:
+            pass
+        print("CAPTCHA detected:", href)
+        driver.get(current_list_url)
+        human_sleep(2, 4)
+        return item
+
+    try:
+        title_el = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h1.head-title")))
+        item["title"] = title_el.text.strip()
+    except Exception:
+        item["title"] = ""
+
+    specs_map = _extract_specs(driver)
+
+    # Lấy địa chỉ
+    try:
+        addr_el = wait.until(
+            EC.presence_of_element_located((
+                By.XPATH,
+                "//div[@class='reales-location']//div[contains(@style,'width:87%')]"
+            ))
+        )
+        location = addr_el.text.replace("\n", " ")
+        location = location.split("Lưu tin")[0].strip()
+        item["location"] = location
+    except Exception:
+        item["location"] = ""
+
+    # Lấy ngày cập nhật
+    try:
+        date_el = wait.until(
+            EC.presence_of_element_located((
+                By.XPATH,
+                "//div[@class='reales-location']//div[@class='col-right']//i"
+            ))
+        )
+        # Ví dụ text: "Cập nhật: 10-12-2025"
+        text = date_el.text.strip()
+        item["posted_date"] = text.replace("Cập nhật:", "").strip()
+    except Exception:
+        item["posted_date"] = ""
+
+
+    item["description"] = _extract_description(driver, wait)
+    item["images"] = _extract_images(driver)
+
+
+    item["specs"] = specs_map
+    phone_text, contact_name = _extract_phone(driver, wait, human_sleep)
+    item["agent_phone"] = phone_text
+    item["agent_name"] = contact_name
+
+    map_coords, map_link, map_dms = _extract_map(driver, wait)
+    item["map_coords"] = map_coords
+    item["map_link"] = map_link
+    item["map_dms"] = map_dms
+
+    human_sleep(2, 4)
+    try:
+        driver.get(current_list_url)
+        human_sleep(2, 4)
+    except Exception:
+        pass
+
+    return item
+

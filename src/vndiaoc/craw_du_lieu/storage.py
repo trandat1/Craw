@@ -420,7 +420,7 @@ def transform_to_example_format(item: dict[str, Any]) -> dict[str, Any]:
         "area": area_number,
         "area_unit": "m2" if area_number else None,
         "price": int(price_number) if price_number else 0,
-        "price_unit": price_unit if price_unit else 0,
+        "price_unit": price_unit if price_unit and price_number > 0 else 3,
         "bedroom": bedroom,
         "bathroom": bathroom,
         "floor": floor,

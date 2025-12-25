@@ -7,8 +7,8 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from vndiaoc import config
-from vndiaoc.craw_du_lieu.runner import run_scraper
+from sosanhnha import config
+from sosanhnha.craw_du_lieu.runner import run_scraper
 
 
 

@@ -21,24 +21,27 @@ def find_and_click_next_page(driver, wait):
 
     try:
         next_btn = wait.until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "ul.pagination a[gtm-act='next']")
-            )
+            EC.element_to_be_clickable((
+                By.CSS_SELECTOR,
+                ".pagination a.btnPage i.fa-angle-right"
+            ))
         )
 
-        next_href = next_btn.get_attribute("href")
-        if not next_href:
+        btn = next_btn.find_element(By.XPATH, "./ancestor::a")
+        href = btn.get_attribute("href")
+
+        if not href:
             return False
 
-        driver.get(next_href)
+        driver.get(href)
 
     except Exception:
         print("[Pagination] No next page")
         return False
 
-    # Chờ URL thay đổi
+    # chờ URL đổi
     for _ in range(20):
-        time.sleep(0.5)
+        time.sleep(0.3)
         if driver.current_url != prev_url:
             return True
 
@@ -350,7 +353,7 @@ def scrape_url(
                     status_callback["total_items"] = len(all_results) + i
                     status_callback["progress"] = f"Trang {page_idx}/{max_pages} - Item {i}/{len(collected)}"
                 
-                print(f"[Page {page_idx}] Item {i}/{len(collected)} - PID {item.get('pid')}")
+                print(f"[Page {page_idx}] Item {i}/{len(collected)}")
                 human_sleep(2, 5)
                 try:
                     full = open_detail_and_extract(

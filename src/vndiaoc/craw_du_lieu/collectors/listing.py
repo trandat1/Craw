@@ -17,114 +17,89 @@ def _scroll_listing(driver, steps: int):
         pass
 
 
-def collect_list_items(
-    driver,
-    scraped_hrefs: set[str],
-    max_items: int,
-    scroll_steps: int,
-) -> Tuple[list[dict], int, int, int]:
+def collect_list_items(driver, scraped_hrefs: set[str], max_items: int, scroll_steps: int):
     """
-    Return (items, total_cards, skipped_pid, skipped_href).
+    Crawl danh sách sản phẩm, trả về list dict template.
+    Chỉ update href, title, price, thumbnail nếu có.
     """
     _scroll_listing(driver, scroll_steps)
-
-    out: List[dict] = []
-    els = []
-
-    # Chờ danh sách xuất hiện
-    for _ in range(20):
-        els = driver.find_elements(By.CSS_SELECTOR, "ul.props > li")
-        if els:
-            break
-        time.sleep(1)
 
     skipped_href = 0
     out = []
 
+    # Chờ product xuất hiện
+    for _ in range(20):
+        els = driver.find_elements(By.CSS_SELECTOR, "div.product")
+        if els:
+            break
+        time.sleep(0.5)
+
     for el in els:
         try:
+            item = {
+                "href": "",
+                "title": "",
+                "price": "",
+                "price_per_m2": "",
+                "area": "",
+                "location": "",
+                "description": "",
+                "thumbnail": "",
+                "posted_date": "",
+                "agent_name": "",
+                "agent_phone": "",
+                "images": [],
+                "specs": {},
+                "config": {},
+                "map_coords": "",
+                "map_link": "",
+                "map_dms": ""
+            }
+
             # ==============================
-            # Lấy link & title
+            # Link & title
             # ==============================
             try:
-                a = el.find_element(By.CSS_SELECTOR, ".prop-info a.link-overlay")
+                a = el.find_element(By.CSS_SELECTOR, ".caption_wrapper .caption_wrap .tend a")
                 href = a.get_attribute("href")
-                title = a.find_element(By.CSS_SELECTOR, "h2.prop-title").text.strip()
+                title = a.text.strip()
+                if href:
+                    item["href"] = href
+                if title:
+                    item["title"] = title
             except:
-                continue  # nếu không có href thì bỏ qua
+                pass
 
-            if href in scraped_hrefs:
+            if item["href"] in scraped_hrefs:
                 skipped_href += 1
                 continue
 
             # ==============================
-            # Thumbnail (ảnh lớn)
+            # Thumbnail
             # ==============================
             try:
-                img = el.find_element(By.CSS_SELECTOR, ".prop-img img")
+                img = el.find_element(By.CSS_SELECTOR, ".img img")
                 thumbnail = img.get_attribute("src")
+                if thumbnail:
+                    item["thumbnail"] = thumbnail
             except:
-                thumbnail = ""
+                pass
 
             # ==============================
-            # Giá & diện tích
+            # Price (nếu rỗng = "0")
             # ==============================
             try:
-                price = el.find_element(By.CSS_SELECTOR, ".prop-info .price").text.strip()
+                price_el = el.find_element(By.CSS_SELECTOR, ".price")
+                price_text = price_el.text.strip()
+                item["price"] = price_text if price_text else "0"
             except:
-                price = ""
+                item["price"] = "0"
 
-            try:
-                # Diện tích thường là li đầu tiên trong .prop-attr
-                area = el.find_element(By.CSS_SELECTOR, ".prop-info .prop-attr li").text.strip()
-            except:
-                area = ""
-
-            # ==============================
-            # Vị trí
-            # ==============================
-            try:
-                location = el.find_element(By.CSS_SELECTOR, ".prop-info .prop-addr").text.strip()
-            except:
-                location = ""
-
-            # ==============================
-            # Thời gian (posted_date)
-            # ==============================
-            try:
-                posted_date = el.find_element(By.CSS_SELECTOR, ".prop-extra .prop-created").text.strip()
-            except:
-                posted_date = ""
-
-            # ==============================
             # Push vào output
-            # ==============================
-            out.append(
-                {
-                    "href": href,
-                    "title": title,
-                    "price": price,
-                    "price_per_m2": "",
-                    "area": area,
-                    "location": location,
-                    "description": "",
-                    "thumbnail": thumbnail,
-                    "posted_date": posted_date,
-                    "agent_name": "",
-                    "agent_phone": "",
-                    "images": [],
-                    "specs": {},
-                    "config": {},
-                    "map_coords": "",
-                    "map_link": "",
-                    "map_dms": ""
-                }
-            )
+            out.append(item)
 
         except StaleElementReferenceException:
             continue
 
-    if not out:
-        print(f"[collect_list_items] Found {len(els)} cards but skipped {skipped_href} by href.")
-
     return out[:max_items], len(els), 0, skipped_href
+
